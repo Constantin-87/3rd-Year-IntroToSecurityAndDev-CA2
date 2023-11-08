@@ -94,15 +94,14 @@ async function importPrivateKey(jwkKey) {
                 name: 'RSA-OAEP',
                 hash: {name: 'SHA-256'}
             },
-            false, // whether the key is extractable
+            true, // whether the key is extractable
             ['decrypt'] // only need to decrypt with the private key
             );
     return cryptoKey;
 }
 
-// Function to import the symmetric key from Base64 to a CryptoKey object
-async function importSymmetricKey(base64Key) {
-    const keyBuffer = base64ToArrayBuffer(base64Key);
+// Function to import the symmetric key from an ArrayBuffer to a CryptoKey object
+async function importSymmetricKey(keyBuffer) {
     const cryptoKey = await window.crypto.subtle.importKey(
             "raw", // raw format of the key - should be Uint8Array
             keyBuffer,
@@ -118,34 +117,34 @@ async function importSymmetricKey(base64Key) {
 }
 
 // Function to decrypt the symmetric key using your private key
-async function decryptSymmetricKey(encryptedSymKeyBase64) {
+async function decryptSymmetricKey(encryptedSymKey) {
     console.log("In: decryptSymmetricKey");
-    console.log("Retrieving private key for symmetric key decryption...");
     try {
         // Retrieve the JWK private key from IndexedDB
         const jwkPrivateKey = await getPrivateKey();
+        console.log("JWK Private Key:", JSON.stringify(jwkPrivateKey)); // Log the JWK for debugging
+
         // Import the private key to the CryptoKey object
         const privateKey = await importPrivateKey(jwkPrivateKey);
-        console.log("Private key imported successfully for decryption.");
+        console.log("Private key used for decryption (CryptoKey object): ", privateKey);
 
-        // Convert Base64 encoded data to an ArrayBuffer
-        const encryptedSymKey = base64ToArrayBuffer(encryptedSymKeyBase64);
+        // No need for Base64 conversion since the encrypted key is already an ArrayBuffer
 
         // Decrypt the symmetric key with the private key
         const decryptedSymKey = await window.crypto.subtle.decrypt(
                 {
-                    name: "RSA-OAEP"
+                    name: "RSA-OAEP",
+                    hash: {name: "SHA-256"} // This should match the Java OAEPParameterSpec
                 },
                 privateKey,
-                encryptedSymKey
+                encryptedSymKey // This is an ArrayBuffer
                 );
 
         console.log("Symmetric key decryption successful.");
-        const decryptedSymKeyBase64 = arrayBufferToBase64(decryptedSymKey);
-        console.log("Decrypted symmetric key:", decryptedSymKeyBase64);
-        return decryptedSymKeyBase64;
+        return decryptedSymKey;
     } catch (error) {
-        console.error("Failed to decrypt symmetric key:", error);
-        throw new Error("Decryption failed");
+        console.error("Failed to decrypt symmetric key with error:", error);
+        throw new Error("Decryption failed: " + error.message);
     }
 }
+

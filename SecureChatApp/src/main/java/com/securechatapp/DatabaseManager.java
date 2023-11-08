@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.PublicKey;
+import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -20,6 +21,8 @@ import java.util.logging.Level;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.OAEPParameterSpec;
+import javax.crypto.spec.PSource;
 import javax.crypto.spec.SecretKeySpec;
 import org.mindrot.jbcrypt.BCrypt;
 
@@ -93,6 +96,7 @@ public class DatabaseManager {
             preparedStatement.setString(2, hashedPassword);
             preparedStatement.setString(3, salt);
             preparedStatement.setString(4, publicKey); // Save the public key
+            AppLogger.info("Storing public key for user " + username + ": " + publicKey); // Log the public key
 
             int rowsAffected = preparedStatement.executeUpdate();
             if (rowsAffected > 0) {
@@ -285,18 +289,21 @@ public class DatabaseManager {
     public static String getPublicKeyByUserId(int userId) throws SQLException {
         String selectQuery = "SELECT public_key FROM users WHERE id = ?";
         try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(selectQuery)) {
+            AppLogger.info("Retrieving public key for user ID: " + userId);
 
             preparedStatement.setInt(1, userId);
             try ( ResultSet resultSet = preparedStatement.executeQuery()) {
                 if (resultSet.next()) {
-                    return resultSet.getString("public_key");
+                    String publicKey = resultSet.getString("public_key");
+                    AppLogger.info("Public key retrieved for user ID: " + userId);
+                    return publicKey;
                 } else {
                     AppLogger.warning("Public key not found for user ID: " + userId);
-                    return null; // Public key not found
+                    return null;
                 }
             }
         } catch (SQLException e) {
-            AppLogger.severe("Failed to retrieve public key: " + e.getMessage());
+            AppLogger.severe("Failed to retrieve public key for user ID: " + userId + " - " + e.getMessage());
             throw e;
         }
     }
@@ -320,16 +327,18 @@ public class DatabaseManager {
         return null; // Conversation does not exist
     }
 
-    private static String encryptSymmetricKey(String symmetricKey, String publicKeyStr) throws GeneralSecurityException {
+    private static byte[] encryptSymmetricKey(byte[] symmetricKeyBytes, String publicKeyStr) throws GeneralSecurityException {
         byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyStr);
         X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicKeyBytes);
         PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(keySpec);
 
-        Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+        OAEPParameterSpec oaepParams = new OAEPParameterSpec(
+                "SHA-256", "MGF1", MGF1ParameterSpec.SHA256, PSource.PSpecified.DEFAULT
+        );
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey, oaepParams);
 
-        byte[] encryptedKey = cipher.doFinal(Base64.getDecoder().decode(symmetricKey));
-        return Base64.getEncoder().encodeToString(encryptedKey);
+        return cipher.doFinal(symmetricKeyBytes); // Return the encrypted byte array directly
     }
 
     private static int createNewConversation(int user1_id, int user2_id) throws SQLException, GeneralSecurityException {
@@ -337,61 +346,68 @@ public class DatabaseManager {
         int conversationId = -1;
 
         try ( Connection conn = getConnection();  PreparedStatement insertStmt = conn.prepareStatement(insertQuery, Statement.RETURN_GENERATED_KEYS)) {
+            AppLogger.info("Creating new conversation between user " + user1_id + " and user " + user2_id);
+
             insertStmt.setInt(1, user1_id);
             insertStmt.setInt(2, user2_id);
             int affectedRows = insertStmt.executeUpdate();
 
             if (affectedRows == 0) {
+                AppLogger.warning("No rows affected while creating new conversation.");
                 throw new SQLException("Creating conversation failed, no rows affected.");
             }
 
             try ( ResultSet generatedKeys = insertStmt.getGeneratedKeys()) {
                 if (generatedKeys.next()) {
                     conversationId = generatedKeys.getInt(1);
+                    AppLogger.info("New conversation created with ID: " + conversationId);
                 } else {
+                    AppLogger.warning("No ID obtained for new conversation.");
                     throw new SQLException("Creating conversation failed, no ID obtained.");
                 }
             }
+
+            // Handle the symmetric key generation and storage
+            handleSymmetricKeyForConversation(user1_id, user2_id);
+
+            return conversationId;
         }
-
-        // Now we handle the symmetric key generation and storage
-        SecretKey symmetricKey = generateSymmetricKey();
-        String symmetricKeyStr = secretKeyToString(symmetricKey);
-        storeEncryptedSymmetricKey(user1_id, conversationId, symmetricKeyStr);
-        storeEncryptedSymmetricKey(user2_id, conversationId, symmetricKeyStr);
-
-        return conversationId;
     }
 
-    public static SecretKey generateSymmetricKey() throws GeneralSecurityException {
+    public static byte[] generateSymmetricKeyBytes() throws GeneralSecurityException {
         KeyGenerator keyGen = KeyGenerator.getInstance("AES");
         keyGen.init(256); // for example, use 256 bits for AES
-        return keyGen.generateKey();
+        SecretKey secretKey = keyGen.generateKey();
+        return secretKey.getEncoded();
     }
 
-    public static void storeEncryptedSymmetricKey(int userId, int conversationId, String symmetricKey) throws SQLException, GeneralSecurityException {
+    public static void storeEncryptedSymmetricKey(int userId, int conversationId, byte[] symmetricKeyBytes) throws SQLException, GeneralSecurityException {
         String publicKeyStr = getPublicKeyByUserId(userId);
         if (publicKeyStr == null) {
+            AppLogger.warning("Public key not found for user ID: " + userId);
             throw new GeneralSecurityException("Public key not found for user ID: " + userId);
         }
 
-        String encryptedSymmetricKey = encryptSymmetricKey(symmetricKey, publicKeyStr);
+        byte[] encryptedSymmetricKey = encryptSymmetricKey(symmetricKeyBytes, publicKeyStr);
 
         String insertQuery = "INSERT INTO user_conversation_keys (userId, conversationId, sym_key_usr_encrypted) VALUES (?, ?, ?)";
 
         try ( Connection conn = getConnection();  PreparedStatement insertStmt = conn.prepareStatement(insertQuery)) {
             insertStmt.setInt(1, userId);
             insertStmt.setInt(2, conversationId);
-            insertStmt.setString(3, encryptedSymmetricKey);
+            insertStmt.setBytes(3, encryptedSymmetricKey);
             int affectedRows = insertStmt.executeUpdate();
 
             if (affectedRows == 0) {
+                AppLogger.warning("Storing encrypted symmetric key failed, no rows affected for user ID: " + userId);
                 throw new SQLException("Storing encrypted symmetric key failed, no rows affected.");
+            } else {
+                AppLogger.info("Encrypted symmetric key stored successfully for user ID: " + userId);
             }
         }
     }
 
-    public static String getEncryptedSymmetricKey(int userId, int conversationId) throws SQLException {
+    public static byte[] getEncryptedSymmetricKey(int userId, int conversationId) throws SQLException {
         // SQL query to get the encrypted symmetric key for the user and conversation ID
         String selectQuery = "SELECT sym_key_usr_encrypted FROM user_conversation_keys WHERE userId = ? AND conversationId = ?";
         try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(selectQuery)) {
@@ -400,7 +416,7 @@ public class DatabaseManager {
             preparedStatement.setInt(2, conversationId);
             try ( ResultSet resultSet = preparedStatement.executeQuery()) {
                 if (resultSet.next()) {
-                    return resultSet.getString("sym_key_usr_encrypted");
+                    return resultSet.getBytes("sym_key_usr_encrypted");
                 } else {
                     // Handle case where there is no key stored for the conversation
                     return null;
@@ -420,12 +436,13 @@ public class DatabaseManager {
 
     public static void handleSymmetricKeyForConversation(int user1_id, int user2_id) throws SQLException, GeneralSecurityException {
         int conversationId = ensureConversation(user1_id, user2_id);
-        SecretKey symmetricKey = generateSymmetricKey();
-        String symmetricKeyStr = secretKeyToString(symmetricKey);
+        byte[] symmetricKeyBytes = generateSymmetricKeyBytes();
 
         // Encrypt and store for both users
-        storeEncryptedSymmetricKey(user1_id, conversationId, symmetricKeyStr);
-        storeEncryptedSymmetricKey(user2_id, conversationId, symmetricKeyStr);
+        storeEncryptedSymmetricKey(user1_id, conversationId, symmetricKeyBytes);
+        storeEncryptedSymmetricKey(user2_id, conversationId, symmetricKeyBytes);
+
+        AppLogger.info("Symmetric key handled for conversation ID: " + conversationId);
     }
 
 }
