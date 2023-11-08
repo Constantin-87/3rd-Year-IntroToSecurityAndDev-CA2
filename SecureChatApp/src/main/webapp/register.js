@@ -1,60 +1,86 @@
-// This function opens (and creates if necessary) the IndexedDB and then stores the private key
 window.openIndexedDB = function openIndexedDB() {
     return new Promise((resolve, reject) => {
+        console.log('Opening IndexedDB...');
         const request = window.indexedDB.open('secure_chat_app', 1);
         request.onupgradeneeded = event => {
             const db = event.target.result;
             db.createObjectStore('keys', {keyPath: 'id'});
+            console.log('IndexedDB onupgradeneeded: Object store created.');
         };
-        request.onerror = event => reject(`Database error: ${event.target.errorCode}`);
-        request.onsuccess = event => resolve(event.target.result);
+        request.onerror = event => {
+            console.error(`IndexedDB error: ${event.target.errorCode}`);
+            reject(`Database error: ${event.target.errorCode}`);
+        };
+        request.onsuccess = event => {
+            console.log('IndexedDB opened successfully.');
+            resolve(event.target.result);
+        };
     });
 };
 
 // This function stores the private key in the 'keys' object store
 async function storePrivateKey(privateKey) {
-    const db = await openIndexedDB();
-    return new Promise((resolve, reject) => {
-        window.crypto.subtle.exportKey('jwk', privateKey)
-                .then(exportedKey => {
-                    const transaction = db.transaction('keys', 'readwrite');
-                    const objectStore = transaction.objectStore('keys');
-                    const request = objectStore.put({id: 'privateKey', key: exportedKey});
-                    request.onerror = event => reject(`Error storing the private key: ${event.target.errorCode}`);
-                    request.onsuccess = () => resolve('Private key stored successfully');
-                })
-                .catch(error => reject(`Error exporting the private key: ${error}`));
-    });
+    try {
+        const db = await openIndexedDB();
+        const jwkPrivateKey = await window.crypto.subtle.exportKey('jwk', privateKey);
+        console.log('Exported Private Key (JWK):', JSON.stringify(jwkPrivateKey, null, 2));
+
+        const transaction = db.transaction('keys', 'readwrite');
+        const objectStore = transaction.objectStore('keys');
+        const request = objectStore.put({id: 'privateKey', key: jwkPrivateKey});
+
+        return new Promise((resolve, reject) => {
+            request.onerror = event => {
+                console.error(`Error storing the private key: ${event.target.errorCode}`);
+                reject(`Error storing the private key: ${event.target.errorCode}`);
+            };
+            request.onsuccess = () => {
+                console.log('Private key stored successfully in IndexedDB.');
+                resolve('Private key stored successfully');
+            };
+        });
+    } catch (error) {
+        console.error(`Error during private key storage: ${error}`);
+        throw error;
+    }
 }
 
-// This function generates an RSA key pair
 async function generateAndStoreKeyPair() {
-    console.log('Starting key pair generation...');
     try {
         const keyPair = await window.crypto.subtle.generateKey(
                 {
                     name: 'RSA-OAEP',
                     modulusLength: 2048,
                     publicExponent: new Uint8Array([1, 0, 1]),
-                    hash: {name: 'SHA-256'},
+                    hash: {name: 'SHA-256'}
                 },
-                true, // Set the private key to be extractable
+                true,
                 ['encrypt', 'decrypt']
                 );
 
-        console.log('Key pair generated. Storing private key...');
+        // Store the private key in IndexedDB
         await storePrivateKey(keyPair.privateKey);
-        console.log('Private key stored.');
 
-        // Export the public key and encode it in Base64
-        const publicKey = await window.crypto.subtle.exportKey('spki', keyPair.publicKey);
-        const publicKeyBase64 = window.btoa(String.fromCharCode(...new Uint8Array(publicKey)));
+        // Export the private key and print it to the console
+        const exportedPrivateKey = await window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+        const privateKeyBase64 = window.btoa(String.fromCharCode(...new Uint8Array(exportedPrivateKey)));
+        const pemExportedPrivateKey = `-----BEGIN PRIVATE KEY-----\n${privateKeyBase64}\n-----END PRIVATE KEY-----`;
+        console.log('Private key generated: ', pemExportedPrivateKey);
+
+        // Export the public key and print it to the console
+        const exportedPublicKey = await window.crypto.subtle.exportKey('spki', keyPair.publicKey);
+        const publicKeyBase64 = window.btoa(String.fromCharCode(...new Uint8Array(exportedPublicKey)));
+        const pemExportedPublicKey = `-----BEGIN PUBLIC KEY-----\n${publicKeyBase64}\n-----END PUBLIC KEY-----`;
+        console.log('Public key generated: ', pemExportedPublicKey);
+
+        // Store the public key in a form field
         document.getElementById('publicKey').value = publicKeyBase64;
-        console.log('Public key ready to be sent.');
+        console.log('Public key Base64 ready to be sent:', publicKeyBase64);
     } catch (error) {
-        console.error('Key pair generation error:', error);
+        console.error('Error during key pair generation and storage:', error);
     }
 }
+
 
 async function handleRegistration(event) {
     event.preventDefault(); // Prevent the default form submission
@@ -107,3 +133,4 @@ document.addEventListener('DOMContentLoaded', () => {
         registrationForm.addEventListener('submit', handleRegistration);
     }
 });
+

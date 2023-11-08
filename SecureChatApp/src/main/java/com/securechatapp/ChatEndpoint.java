@@ -9,11 +9,10 @@ import javax.websocket.server.ServerEndpoint;
 import javax.websocket.EndpointConfig;
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.json.Json;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
@@ -95,23 +94,33 @@ public class ChatEndpoint {
                     }
 
                     recipientId = jsonMessage.getInt("recipientId");
-                    boolean needSymKey = jsonMessage.getBoolean("needSymKey", false); // Default to false if not present
-                    int userIdRequestingHistory = sessionUserIdMap.get(session);
-                    
+
                     // Create an instance of DatabaseManager to get the chat history
                     DatabaseManager dbManager = new DatabaseManager();
                     conversationId = DatabaseManager.ensureConversation(senderId, recipientId);
                     List<Message> chatHistory = dbManager.getChatHistory(conversationId);
 
-                    // If the client needs the symmetric key, retrieve it from the database
-                    if (needSymKey) {                        
-                        String encryptedSymKey = DatabaseManager.getEncryptedSymmetricKey(userIdRequestingHistory, conversationId);
-                        // Send the encrypted symmetric key to the client
-                        sendSymKey(session, conversationId, encryptedSymKey);
-                    }
-
                     // Send chat history to the user
                     sendChatHistory(session, conversationId, chatHistory);
+                    break;
+
+                case "requestSymKey":
+                    // Check if 'recipientId' is provided and not null
+                    if (!jsonMessage.containsKey("recipientId")) {
+                        AppLogger.severe("onMessage - 'recipientId' is missing for requestSymKey.");
+                        return; // Exit the method if 'recipientId' is missing
+                    }
+
+                    recipientId = jsonMessage.getInt("recipientId");
+                    int userIdRequestingkey = sessionUserIdMap.get(session);
+
+                    // Retrieve or create conversation ID
+                    conversationId = DatabaseManager.ensureConversation(senderId, recipientId);
+
+                    // Retrieve the symmetric key from the database
+                    byte[] encryptedSymKey = DatabaseManager.getEncryptedSymmetricKey(userIdRequestingkey, conversationId);
+                    // Send the encrypted symmetric key to the client
+                    sendSymKey(session, encryptedSymKey);
                     break;
                 default:
                     AppLogger.severe("onMessage - Unknown message type: " + type);
@@ -134,40 +143,40 @@ public class ChatEndpoint {
         AppLogger.severe("onError - WebSocket error: " + throwable.getMessage());
     }
 
-    private void sendSymKey(Session session, int conversationId, String encryptedSymKey) {
-        AppLogger.severe("conversationId: " + conversationId);
-        AppLogger.severe("session: " + session.getId());
-        AppLogger.severe("encryptedSymKey: " + encryptedSymKey);
-        
+    private void sendSymKey(Session session, byte[] encryptedSymKey) {
         try {
-            JsonObject symKeyMessage = Json.createObjectBuilder()
-                    .add("type", "symKeyResponse")
-                    .add("conversationId", conversationId)
-                    .add("encryptedSymKey", encryptedSymKey)
-                    .build();
-
-            session.getBasicRemote().sendText(symKeyMessage.toString());
+            // If you choose to send it as binary
+            ByteBuffer buf = ByteBuffer.wrap(encryptedSymKey);
+            session.getBasicRemote().sendBinary(buf);
         } catch (IOException ex) {
-            AppLogger.severe("sendSymKey - Error sending sym key to user " + ex.getMessage());
+            AppLogger.severe("sendSymKey - Error sending sym key to user: " + ex.getMessage());
         }
     }
 
     private void sendMessageToUser(Integer senderId, Integer recipientId, String content, int conversationId) {
-        Session recipientSession = userIdSessionMap.get(recipientId);
-        if (recipientSession != null && recipientSession.isOpen()) {
-            try {
-                String senderUsername = userIdUsernameMap.get(senderId); // Get sender's username from the map
-                JsonObject jsonMessage = Json.createObjectBuilder()
-                        .add("type", "message")
-                        .add("fromId", senderId)
-                        .add("fromUsr", senderUsername) // Include the sender's username
-                        .add("content", content)
-                        .add("conversationId", conversationId)
-                        .build();
+        try {
+            String senderUsername = userIdUsernameMap.get(senderId); // Get sender's username from the map
+            JsonObject jsonMessage = Json.createObjectBuilder()
+                    .add("type", "message")
+                    .add("senderId", senderId)
+                    .add("senderUsername", senderUsername) // Include the sender's username
+                    .add("content", content) // This should be the encrypted content
+                    .add("conversationId", conversationId)
+                    .build();
+
+            // Send to recipient
+            Session recipientSession = userIdSessionMap.get(recipientId);
+            if (recipientSession != null && recipientSession.isOpen()) {
                 recipientSession.getBasicRemote().sendText(jsonMessage.toString());
-            } catch (IOException e) {
-                AppLogger.severe("sendMessageToUser - Error sending message to user " + recipientId + ": " + e.getMessage());
             }
+
+            // Also send to sender to update their UI
+            Session senderSession = userIdSessionMap.get(senderId);
+            if (senderSession != null && senderSession.isOpen()) {
+                senderSession.getBasicRemote().sendText(jsonMessage.toString());
+            }
+        } catch (IOException e) {
+            AppLogger.severe("sendMessageToUser - Error sending message: " + e.getMessage());
         }
     }
 
@@ -175,7 +184,6 @@ public class ChatEndpoint {
     private void sendChatHistory(Session session, int conversationId, List<Message> chatHistory) {
         JsonArrayBuilder historyArrayBuilder = Json.createArrayBuilder();
         for (Message message : chatHistory) {
-            AppLogger.severe("Test: " + message.getContent());
             // Add each message to the JSON array
             historyArrayBuilder.add(Json.createObjectBuilder()
                     .add("id", message.getId())

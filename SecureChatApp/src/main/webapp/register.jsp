@@ -17,7 +17,7 @@
             <input type="submit" value="Register">
         </form>
 
-        <button onclick="location.href = 'index.jsp'">Back</button>
+        <button onclick="location.href = 'index.html'">Back</button>
 
         <script>
             // This script checks for a query string and displays an error message if present
