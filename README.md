@@ -103,8 +103,6 @@ To bypass the browser warning:
 - For **Microsoft Edge**:
   - Click on "Details" and then "Go on to the webpage (not recommended)".
 
-Remember, this is only recommended if you are running the server locally for development and testing purposes. For production environments, it is highly advised to use a certificate from a trusted Certificate Authority (CA).
-
 
 ## Contributing to SecureChatApp
 
