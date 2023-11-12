@@ -1,0 +1,10 @@
+com\securechatapp\RegistrationServlet$UserRegistrationData.class
+com\securechatapp\AppLogger.class
+com\securechatapp\SignInServlet.class
+com\securechatapp\DatabaseManager.class
+com\securechatapp\Message.class
+com\securechatapp\RegistrationServlet.class
+com\securechatapp\ChatEndpoint.class
+com\securechatapp\GetHttpSessionConfigurator.class
+com\securechatapp\LogoutServlet.class
+com\securechatapp\SessionManagementServlet.class
