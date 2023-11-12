@@ -1,0 +1,206 @@
+/* Base styles for the page */
+body, html {
+    height: 100%;
+    margin: 0;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background-color: #EDEFF2; /* Updated background color for a fresher look */
+    color: #333; /* Default text color for better contrast */
+}
+
+/* Header styles */
+header {
+    padding: 15px 20px;
+    background-color: #FFF;
+    box-shadow: 0 2px 4px 0 rgba(0,0,0,0.1); /* Subtle shadow for depth */
+    z-index: 10; /* Ensure the header is above other elements */
+}
+
+/* Current user display */
+#current-user {
+    font-weight: bold;
+    color: #5B6978; /* Soft color for username */
+}
+
+/* Main container for sidebar and chat area */
+#main-container {
+    display: flex;
+    height: calc(100% - 110px); /* Adjust height to allow for header and footer */
+}
+
+/* Sidebar for online users */
+#users-sidebar {
+    width: 200px; /* Slightly wider sidebar for better usability */
+    background-color: #FFF;
+    padding: 20px;
+    border-right: 1px solid #ddd;
+}
+
+/* Chat area */
+#chat-area {
+    flex-grow: 1;
+    background-color: #FFF;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+/* Footer styles for input and send button */
+footer {
+    padding: 15px 20px;
+    background-color: #FFF;
+    border-top: 1px solid #ddd;
+    box-shadow: 0 -2px 4px 0 rgba(0,0,0,0.1); /* Shadow for depth */
+}
+
+/* Styles for message input */
+#message-input {
+    flex-grow: 1;
+    padding: 20px 10px; /* Adjust padding to visually center the text */
+    margin-right: 10px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    font-size: 18px;
+    line-height: 1.5; /* Adjust line height for better text appearance */
+    resize: none;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Placeholder styles */
+#message-input::placeholder {
+    color: #999; /* Placeholder text color */
+    font-size: 18px; /* Increase the placeholder text size */
+    opacity: 1; /* Make placeholder fully visible */
+}
+
+/* Send button styles */
+#send-button {
+    width: 150px;
+    height: calc(1.5em + 65px); /* Height based on input line-height plus double padding */
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 20px;
+    font-size: 18px; /* Match the font size of the input field */
+    box-sizing: border-box; /* Includes padding and border in height calculation */
+}
+
+#send-button:hover {
+    background-color: #4B5968; /* Darken button on hover */
+}
+
+/* Logout button styles */
+#logout-button {
+    padding: 10px 20px;
+    background-color: #F44336; /* Keep the logout button red for clarity */
+    color: white;
+    border: none;
+    border-radius: 20px; /* Rounded edges for the button */
+    transition: background-color 0.3s; /* Transition for hover effect */
+}
+
+#logout-button:hover {
+    background-color: #D32F2F; /* Darken button on hover */
+}
+
+/* Styles for user buttons */
+.user-button {
+    display: block;
+    padding: 10px;
+    margin: 5px; /* Add 5px margin to all sides */
+    border: none;
+    background-color: #f2f2f2;
+    text-align: center; /* Center the text */
+    cursor: pointer;
+    width: calc(100% - 10px); /* Subtract 10px total for left and right margins */
+    border-radius: 15px; /* Rounded corners */
+}
+
+/* Active and hover styles */
+.user-button:hover,
+.user-button.active {
+    background-color: #5B6978; /* Highlight on hover or active */
+    color: white;
+    transform: translateY(-2px); /* Slight raise effect */
+}
+
+/* Styles for the messages in chat */
+.message {
+    padding: 10px;
+    border-radius: 20px;
+    margin-bottom: 10px;
+    max-width: 60%;
+    word-wrap: break-word;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+    position: relative;
+    z-index: 1;
+}
+
+.sent,
+.received {
+    color: #333; /* Ensure text color is visible over the gradient */
+}
+
+.sent {
+    margin-left: auto;
+    margin-right: 20px;
+    border-bottom-right-radius: 0;
+    text-align: right;
+    background: linear-gradient(to left, #dcf8c6 50%, rgba(220,248,198,0));
+}
+
+.received {
+    margin-right: auto;
+    margin-left: 20px;
+    border-bottom-left-radius: 0;
+    text-align: left;
+    background: linear-gradient(to right, #ebebeb 50%, rgba(235,235,235,0));
+}
+
+.sent:before {
+    right: -10px;
+    border-width: 15px 15px 0 0;
+    border-style: solid;
+    border-color: #DCF8C6 transparent transparent transparent;
+}
+
+.received:before {
+    left: -10px;
+    border-width: 15px 0 0 15px;
+    border-style: solid;
+    border-color: #ECEFF1 transparent transparent transparent;
+}
+
+/* Adjustments for the input container to ensure consistent height */
+#input-container {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background-color: #f0f0f0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #users-sidebar {
+        width: 100px; /* Smaller sidebar on smaller screens */
+    }
+    #main-container {
+        flex-direction: column;
+    }
+    #chat-area {
+        height: 400px; /* Fixed height on mobile to avoid overflow */
+    }
+    footer,
+    header {
+        padding: 10px;
+    }
+    #message-input,
+    #send-button,
+    #logout-button {
+        padding: 10px;
+    }
+    .message {
+        padding: 7px 12px;
+    }
+}
