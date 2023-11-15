@@ -1,7 +1,7 @@
-/* Base styles for the page */
+ /* Base styles for the page */
 body, html {
     height: 100%;
-    margin: 0;
+    margin: 5px;
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     background-color: #EDEFF2; /* Updated background color for a fresher look */
     color: #333; /* Default text color for better contrast */
@@ -11,20 +11,79 @@ body, html {
 header {
     padding: 15px 20px;
     background-color: #FFF;
-    box-shadow: 0 2px 4px 0 rgba(0,0,0,0.1); /* Subtle shadow for depth */
-    z-index: 10; /* Ensure the header is above other elements */
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    position: relative;
+}
+
+/* Title container styles */
+#title-container {
+    text-align: center;
+    padding-bottom: 20px; /* Adds space below the title */
+    padding-top: 15px;
+}
+
+/* Title styles */
+header h1 {
+    margin: 0; /* Removes default margin to align title properly */
+    font-size: 24px; /* Adjust font size as needed */
+    color: #333; /* Color of the title text */
+}
+
+#chat-with {
+    text-align: center; /* Centers inline or inline-block elements within */
+}
+
+/* Chat with styles */
+#chat-with span {
+    display: inline-block; /* Allows us to add padding and background to just the content */
+    padding: 5px 10px; /* 5px top and bottom, 10px left and right padding */
+    background-color: #f7f7f7; /* A light background color to make it stand out */
+    border-radius: 10px; /* Optional: rounded corners for the background */
+    font-size: 18px; /* Slightly larger font size for emphasis */
+    color: #333; /* Text color for better contrast against the background */
+    font-weight: bold; /* Make the font bold */
+    margin-top: 10px; /* Extra space above the chat with area */
+    margin-bottom: 10px; /* Extra space below the chat with area */
+    /* If needed, you can add this to ensure it stays centered even with padding */
+    box-sizing: border-box;
+}
+
+/* User and logout container styles */
+#user-logout-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 /* Current user display */
 #current-user {
     font-weight: bold;
     color: #5B6978; /* Soft color for username */
+    flex: 1; /* Flex grow to push other elements to center and right */
+    text-align: left; /* Aligns the text to the left */
+}
+
+/* Logout button styles */
+#logout-button {
+    padding: 10px 20px;
+    background-color: #F44336; /* Keep the logout button red for clarity */
+    color: white;
+    border: none;
+    border-radius: 20px; /* Rounded edges for the button */
+    transition: background-color 0.3s; /* Transition for hover effect */
+     flex: 1; /* Flex grow to align itself to the right */
+    text-align: right; /* Aligns the button to the right */
+}
+
+#logout-button:hover {
+    background-color: #D32F2F; /* Darken button on hover */
 }
 
 /* Main container for sidebar and chat area */
-#main-container {
+#chat-container {
     display: flex;
-    height: calc(100% - 110px); /* Adjust height to allow for header and footer */
+    height: 70%; /* Taking up 90% of the viewport height */
 }
 
 /* Sidebar for online users */
@@ -48,7 +107,7 @@ footer {
     padding: 15px 20px;
     background-color: #FFF;
     border-top: 1px solid #ddd;
-    box-shadow: 0 -2px 4px 0 rgba(0,0,0,0.1); /* Shadow for depth */
+    box-shadow: 0 -2px 4px 0 rgba(0, 0, 0, 0.1); /* Shadow for depth */
 }
 
 /* Styles for message input */
@@ -90,20 +149,6 @@ footer {
     background-color: #4B5968; /* Darken button on hover */
 }
 
-/* Logout button styles */
-#logout-button {
-    padding: 10px 20px;
-    background-color: #F44336; /* Keep the logout button red for clarity */
-    color: white;
-    border: none;
-    border-radius: 20px; /* Rounded edges for the button */
-    transition: background-color 0.3s; /* Transition for hover effect */
-}
-
-#logout-button:hover {
-    background-color: #D32F2F; /* Darken button on hover */
-}
-
 /* Styles for user buttons */
 .user-button {
     display: block;
@@ -132,7 +177,7 @@ footer {
     margin-bottom: 10px;
     max-width: 60%;
     word-wrap: break-word;
-    box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
     position: relative;
     z-index: 1;
 }
@@ -147,7 +192,7 @@ footer {
     margin-right: 20px;
     border-bottom-right-radius: 0;
     text-align: right;
-    background: linear-gradient(to left, #dcf8c6 50%, rgba(220,248,198,0));
+    background: linear-gradient(to left, #dcf8c6 50%, rgba(220, 248, 198, 0));
 }
 
 .received {
@@ -155,7 +200,7 @@ footer {
     margin-left: 20px;
     border-bottom-left-radius: 0;
     text-align: left;
-    background: linear-gradient(to right, #ebebeb 50%, rgba(235,235,235,0));
+    background: linear-gradient(to right, #ebebeb 50%, rgba(235, 235, 235, 0));
 }
 
 .sent:before {
@@ -176,7 +221,6 @@ footer {
 #input-container {
     display: flex;
     align-items: center;
-    padding: 10px;
     background-color: #f0f0f0;
 }
 
@@ -185,22 +229,87 @@ footer {
     #users-sidebar {
         width: 100px; /* Smaller sidebar on smaller screens */
     }
+
     #main-container {
         flex-direction: column;
     }
+
     #chat-area {
         height: 400px; /* Fixed height on mobile to avoid overflow */
     }
+
     footer,
     header {
         padding: 10px;
     }
+
     #message-input,
     #send-button,
     #logout-button {
         padding: 10px;
     }
+
     .message {
         padding: 7px 12px;
     }
+}
+
+/* Flicker animation for buttons */
+@keyframes flickerAnimation {
+    0%   { background-color: inherit; }
+    50%  { background-color: palegreen; }
+    100% { background-color: inherit; }
+}
+
+.flicker {
+    animation: flickerAnimation 1s infinite;
+}
+
+/* General form container styling for login and registration */
+.form-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    max-width: 400px;
+    margin: auto;
+    padding: 20px;
+    background-color: #FFF;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,.1); /* Vertically center with equal space on top and bottom */
+    padding-bottom: 50px;
+}
+
+/* Group input and label together */
+.input-group {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+/* Style for all action buttons including login, register, and back */
+.action-button {
+    width: 100%;
+    padding: 10px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 18px;
+    box-sizing: border-box;
+}
+
+.action-button:hover {
+    background-color: #4B5968;
+}
+
+
+/* Error message styling */
+#error-message {
+    color: red;
+    text-align: center;
+    margin-bottom: 20px;
 }

@@ -5,14 +5,11 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.io.InputStream;
 import org.mindrot.jbcrypt.BCrypt;
-
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.OAEPParameterSpec;
 import javax.crypto.spec.PSource;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.PublicKey;
@@ -53,33 +50,7 @@ public class DatabaseManager {
         return dataSource.getConnection();
     }
 
-    /*
-    // Database connection details
-    private static final String DATABASE_URL = "jdbc:mysql://localhost:3306/securechatapp";
-    private static final String DATABASE_USER = "constantin";
-    private static final String DATABASE_PASSWORD = "password";
-
-    public static Connection getConnection() throws SQLException {
-        try {
-            Connection connection = DriverManager.getConnection(DATABASE_URL, DATABASE_USER, DATABASE_PASSWORD);
-            return connection;
-        } catch (SQLException e) {
-            AppLogger.log(Level.SEVERE, "Database connection failed: " + e.getMessage());
-            throw e;
-        }
-    }
-     
-    
-    static {
-        try {
-            // This will load the MySQL driver, each DB has its own driver
-            Class.forName("com.mysql.cj.jdbc.Driver");
-        } catch (ClassNotFoundException e) {
-            AppLogger.severe("MySQL driver not found: " + e.getMessage());
-        }
-    }
-     */
-    public static int registerUser(String username, String hashedPassword, String salt, String publicKey) throws SQLException {
+    public static int registerUser(String username, String hashedPassword, String salt, String publicKey, String encPrivateKey) throws SQLException {
         // Input validation
         if (username == null || username.trim().isEmpty()) {
             throw new IllegalArgumentException("Username cannot be null or empty.");
@@ -93,29 +64,46 @@ public class DatabaseManager {
         if (publicKey == null || publicKey.trim().isEmpty()) {
             throw new IllegalArgumentException("Public key cannot be null or empty.");
         }
+        if (encPrivateKey == null || encPrivateKey.trim().isEmpty()) {
+            throw new IllegalArgumentException("Private key cannot be null or empty.");
+        }
 
-        // SQL query to insert a new user with the username, hashed password, salt, and public key
-        String insertQuery = "INSERT INTO users (username, hash, salt, public_key) VALUES (?, ?, ?, ?)";
-        try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(insertQuery, Statement.RETURN_GENERATED_KEYS)) {
-            preparedStatement.setString(1, username);
-            preparedStatement.setString(2, hashedPassword);
-            preparedStatement.setString(3, salt);
-            preparedStatement.setString(4, publicKey); // Save the public key
-            AppLogger.info("Storing public key for user " + username + ": " + publicKey); // Log the public key
+        // SQL query to check if a user with the given username already exists
+        String selectQuery = "SELECT id FROM users WHERE username = ?";
+        try ( Connection conn = getConnection();  PreparedStatement checkStmt = conn.prepareStatement(selectQuery)) {
+            checkStmt.setString(1, username);
 
-            int rowsAffected = preparedStatement.executeUpdate();
-            if (rowsAffected > 0) {
-                AppLogger.info("User registered successfully: " + username);
-                try ( ResultSet generatedKeys = preparedStatement.getGeneratedKeys()) {
-                    if (generatedKeys.next()) {
-                        return generatedKeys.getInt(1); // Return the generated ID
-                    } else {
-                        throw new SQLException("Creating user failed, no ID obtained.");
-                    }
+            try ( ResultSet resultSet = checkStmt.executeQuery()) {
+                if (resultSet.next()) {
+                    AppLogger.warning("Registration failed: Username already exists - " + username);
+                    return -2; // Username already exists
                 }
-            } else {
-                AppLogger.warning("User registration failed: " + username);
-                return -1; // Indicate failure
+            }
+
+            // SQL query to insert a new user with the username, hashed password, salt, and public key
+            String insertQuery = "INSERT INTO users (username, hash, salt, public_key, enc_private_key) VALUES (?, ?, ?, ?, ?)";
+            try ( PreparedStatement preparedStatement = conn.prepareStatement(insertQuery, Statement.RETURN_GENERATED_KEYS)) {
+                preparedStatement.setString(1, username);
+                preparedStatement.setString(2, hashedPassword);
+                preparedStatement.setString(3, salt);
+                preparedStatement.setString(4, publicKey);
+                preparedStatement.setString(5, encPrivateKey);
+                AppLogger.info("Storing public key for user " + username + ": " + publicKey); // Log the public key
+
+                int rowsAffected = preparedStatement.executeUpdate();
+                if (rowsAffected > 0) {
+                    AppLogger.info("User registered successfully: " + username);
+                    try ( ResultSet generatedKeys = preparedStatement.getGeneratedKeys()) {
+                        if (generatedKeys.next()) {
+                            return generatedKeys.getInt(1); // Return the generated ID
+                        } else {
+                            throw new SQLException("Creating user failed, no ID obtained.");
+                        }
+                    }
+                } else {
+                    AppLogger.warning("User registration failed: " + username);
+                    return -1; // Indicate failure
+                }
             }
         } catch (SQLException e) {
             AppLogger.severe("Registration failed: " + e.getMessage());
@@ -145,54 +133,6 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             AppLogger.severe("Authentication failed: " + e.getMessage());
-            throw e;
-        }
-    }
-
-    public static void insertOnlineUser(String username, String publicKey, String sessionId) throws SQLException {
-        // SQL to insert a new online user with the public key and session ID
-        String insertQuery = "INSERT INTO onlineusers (username, public_key, session_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE public_key = VALUES(public_key), session_id = VALUES(session_id)";
-
-        try ( Connection conn = getConnection();  PreparedStatement insertStmt = conn.prepareStatement(insertQuery)) {
-            // Insert or update the user
-            insertStmt.setString(1, username);
-            insertStmt.setBytes(2, publicKey.getBytes(StandardCharsets.UTF_8)); // Assuming publicKey is a Base64-encoded string
-            insertStmt.setString(3, sessionId);
-            insertStmt.execute();
-
-            AppLogger.info("User " + username + " is now online with session ID: " + sessionId);
-        } catch (SQLException e) {
-            AppLogger.severe("Failed to insert or update online user: " + username + " - " + e.getMessage());
-            throw e;
-        }
-    }
-
-    public static void removeOnlineUser(String username) throws SQLException {
-        String deleteQuery = "DELETE FROM onlineusers WHERE username = ?";
-        try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(deleteQuery)) {
-            preparedStatement.setString(1, username);
-            int rowsAffected = preparedStatement.executeUpdate();
-            if (rowsAffected > 0) {
-                AppLogger.info("Online user removed: " + username);
-            } else {
-                AppLogger.warning("Failed to remove online user (not found): " + username);
-            }
-        } catch (SQLException e) {
-            AppLogger.severe("Failed to remove online user: " + username + " - " + e.getMessage());
-            throw e;
-        }
-    }
-
-    public static Set<String> getOnlineUsers() throws SQLException {
-        Set<String> onlineUsers = new HashSet<>();
-        String selectQuery = "SELECT username FROM onlineusers";
-        try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(selectQuery);  ResultSet resultSet = preparedStatement.executeQuery()) {
-            while (resultSet.next()) {
-                onlineUsers.add(resultSet.getString("username"));
-            }
-            return onlineUsers;
-        } catch (SQLException e) {
-            AppLogger.severe("Failed to retrieve online users list: " + e.getMessage());
             throw e;
         }
     }
@@ -241,6 +181,26 @@ public class DatabaseManager {
                     return publicKey;
                 } else {
                     AppLogger.warning("Public key not found for user ID: " + userId);
+                    return null;
+                }
+            }
+        } catch (SQLException e) {
+            AppLogger.severe("Failed to retrieve public key for user ID: " + userId + " - " + e.getMessage());
+            throw new RuntimeException("Error retrieving public key", e);
+        }
+    }
+
+    public static String getPrivateKeyByUserId(int userId) throws SQLException {
+        String selectQuery = "SELECT enc_private_key FROM users WHERE id = ?";
+        try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(selectQuery)) {
+
+            preparedStatement.setInt(1, userId);
+            try ( ResultSet resultSet = preparedStatement.executeQuery()) {
+                if (resultSet.next()) {
+                    String privateKey = resultSet.getString("enc_private_key");
+                    return privateKey;
+                } else {
+                    AppLogger.warning("Private key not found for user ID: " + userId);
                     return null;
                 }
             }
@@ -312,7 +272,7 @@ public class DatabaseManager {
             }
 
             // Handle the symmetric key generation and storage
-            handleSymmetricKeyForConversation(user1_id, user2_id);
+            handleSymmetricKeyForConversation(user1_id, user2_id, conversationId);
 
             return conversationId;
         }
@@ -325,50 +285,50 @@ public class DatabaseManager {
         return secretKey.getEncoded();
     }
 
-    public static void storeEncryptedSymmetricKey(int userId, int conversationId, byte[] symmetricKeyBytes) throws SQLException, GeneralSecurityException {
-        String publicKeyStr = getPublicKeyByUserId(userId);
-        if (publicKeyStr == null) {
-            AppLogger.warning("Public key not found for user ID: " + userId);
-            throw new GeneralSecurityException("Public key not found for user ID: " + userId);
-        }
+    public static void storeEncryptedSymmetricKey(int conversationId, byte[] symmetricKeyBytes, int user_id) throws SQLException, GeneralSecurityException {
 
-        byte[] encryptedSymmetricKey = encryptSymmetricKey(symmetricKeyBytes, publicKeyStr);
+        String userPublicKeyStr = getPublicKeyByUserId(user_id);
+        byte[] encryptedSymmetricKey = encryptSymmetricKey(symmetricKeyBytes, userPublicKeyStr);
 
-        String insertQuery = "INSERT INTO user_conversation_keys (userId, conversationId, sym_key_usr_encrypted) VALUES (?, ?, ?)";
+        String insertQuery = "INSERT INTO user_conversation_keys (conversationId, sym_key_usr_encrypted, user_id) VALUES (?, ?, ?)";
 
         try ( Connection conn = getConnection();  PreparedStatement insertStmt = conn.prepareStatement(insertQuery)) {
-            insertStmt.setInt(1, userId);
-            insertStmt.setInt(2, conversationId);
-            insertStmt.setBytes(3, encryptedSymmetricKey);
+            insertStmt.setInt(1, conversationId);
+            insertStmt.setBytes(2, encryptedSymmetricKey);
+            insertStmt.setInt(3, user_id);
             int affectedRows = insertStmt.executeUpdate();
 
             if (affectedRows == 0) {
-                AppLogger.warning("Storing encrypted symmetric key failed, no rows affected for user ID: " + userId);
                 throw new SQLException("Storing encrypted symmetric key failed, no rows affected.");
             } else {
-                AppLogger.info("Encrypted symmetric key stored successfully for user ID: " + userId);
+                AppLogger.info("Encrypted symmetric key stored successfully for user conversation id: " + conversationId);
             }
         }
     }
 
-    public static byte[] getEncryptedSymmetricKey(int userId, int conversationId) throws SQLException {
+    public static byte[] getEncryptedSymmetricKey(int userId, int conversationId) throws SQLException, GeneralSecurityException {
         // SQL query to get the encrypted symmetric key for the user and conversation ID
-        String selectQuery = "SELECT sym_key_usr_encrypted FROM user_conversation_keys WHERE userId = ? AND conversationId = ?";
+        String selectQuery = "SELECT sym_key_usr_encrypted FROM user_conversation_keys WHERE user_id = ? AND conversationId = ?";
+
         try ( Connection conn = getConnection();  PreparedStatement preparedStatement = conn.prepareStatement(selectQuery)) {
 
             preparedStatement.setInt(1, userId);
             preparedStatement.setInt(2, conversationId);
+
             try ( ResultSet resultSet = preparedStatement.executeQuery()) {
                 if (resultSet.next()) {
+                    // Return the encrypted symmetric key as it is
                     return resultSet.getBytes("sym_key_usr_encrypted");
                 } else {
-                    // Handle case where there is no key stored for the conversation
+                    // No symmetric key found for the provided user_id and conversationId
+                    AppLogger.info("No encrypted symmetric key found for user_id: " + userId + " and conversationId: " + conversationId);
                     return null;
                 }
             }
         }
     }
 
+    /*
     public static String secretKeyToString(SecretKey secretKey) {
         return Base64.getEncoder().encodeToString(secretKey.getEncoded());
     }
@@ -377,14 +337,14 @@ public class DatabaseManager {
         byte[] decodedKey = Base64.getDecoder().decode(keyStr);
         return new SecretKeySpec(decodedKey, 0, decodedKey.length, "AES");
     }
+     */
+    public static void handleSymmetricKeyForConversation(int user1_id, int user2_id, int conversationId) throws SQLException, GeneralSecurityException {
 
-    public static void handleSymmetricKeyForConversation(int user1_id, int user2_id) throws SQLException, GeneralSecurityException {
-        int conversationId = ensureConversation(user1_id, user2_id);
         byte[] symmetricKeyBytes = generateSymmetricKeyBytes();
 
         // Encrypt and store for both users
-        storeEncryptedSymmetricKey(user1_id, conversationId, symmetricKeyBytes);
-        storeEncryptedSymmetricKey(user2_id, conversationId, symmetricKeyBytes);
+        storeEncryptedSymmetricKey(conversationId, symmetricKeyBytes, user1_id);
+        storeEncryptedSymmetricKey(conversationId, symmetricKeyBytes, user2_id);
 
         AppLogger.info("Symmetric key handled for conversation ID: " + conversationId);
     }
@@ -433,4 +393,5 @@ public class DatabaseManager {
         }
         return chatHistory;
     }
+
 }

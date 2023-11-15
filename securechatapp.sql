@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Nov 07, 2023 at 12:21 PM
+-- Generation Time: Nov 15, 2023 at 12:24 PM
 -- Server version: 10.4.28-MariaDB
 -- PHP Version: 8.2.4
 
@@ -52,19 +52,6 @@ CREATE TABLE `conversations` (
 -- --------------------------------------------------------
 
 --
--- Table structure for table `onlineusers`
---
-
-CREATE TABLE `onlineusers` (
-  `id` int(11) NOT NULL,
-  `username` varchar(255) NOT NULL,
-  `public_key` text NOT NULL,
-  `session_id` varchar(255) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `users`
 --
 
@@ -73,7 +60,8 @@ CREATE TABLE `users` (
   `username` varchar(30) NOT NULL,
   `hash` varchar(100) NOT NULL,
   `salt` varchar(100) NOT NULL,
-  `public_key` text NOT NULL
+  `public_key` text NOT NULL,
+  `enc_private_key` text NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -83,9 +71,9 @@ CREATE TABLE `users` (
 --
 
 CREATE TABLE `user_conversation_keys` (
-  `userId` int(11) NOT NULL,
   `conversationId` int(11) NOT NULL,
-  `sym_key_usr_encrypted` blob NOT NULL
+  `sym_key_usr_encrypted` blob DEFAULT NULL,
+  `user_id` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -108,14 +96,6 @@ ALTER TABLE `conversations`
   ADD KEY `recipient_id` (`recipient_id`);
 
 --
--- Indexes for table `onlineusers`
---
-ALTER TABLE `onlineusers`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `username` (`username`),
-  ADD UNIQUE KEY `session_id` (`session_id`);
-
---
 -- Indexes for table `users`
 --
 ALTER TABLE `users`
@@ -125,8 +105,8 @@ ALTER TABLE `users`
 -- Indexes for table `user_conversation_keys`
 --
 ALTER TABLE `user_conversation_keys`
-  ADD PRIMARY KEY (`userId`,`conversationId`),
-  ADD KEY `conversationId` (`conversationId`);
+  ADD PRIMARY KEY (`conversationId`,`user_id`),
+  ADD KEY `user_id` (`user_id`);
 
 --
 -- AUTO_INCREMENT for dumped tables
@@ -136,25 +116,19 @@ ALTER TABLE `user_conversation_keys`
 -- AUTO_INCREMENT for table `chat_messages`
 --
 ALTER TABLE `chat_messages`
-  MODIFY `message_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=64;
+  MODIFY `message_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `conversations`
 --
 ALTER TABLE `conversations`
-  MODIFY `conversation_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
-
---
--- AUTO_INCREMENT for table `onlineusers`
---
-ALTER TABLE `onlineusers`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=44;
+  MODIFY `conversation_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- Constraints for dumped tables
@@ -170,15 +144,13 @@ ALTER TABLE `chat_messages`
 -- Constraints for table `conversations`
 --
 ALTER TABLE `conversations`
-  ADD CONSTRAINT `conversations_ibfk_1` FOREIGN KEY (`sender_id`) REFERENCES `users` (`id`),
   ADD CONSTRAINT `conversations_ibfk_2` FOREIGN KEY (`recipient_id`) REFERENCES `users` (`id`);
 
 --
 -- Constraints for table `user_conversation_keys`
 --
 ALTER TABLE `user_conversation_keys`
-  ADD CONSTRAINT `user_conversation_keys_ibfk_1` FOREIGN KEY (`userId`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `user_conversation_keys_ibfk_2` FOREIGN KEY (`conversationId`) REFERENCES `conversations` (`conversation_id`) ON DELETE CASCADE;
+  ADD CONSTRAINT `user_conversation_keys_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`);
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

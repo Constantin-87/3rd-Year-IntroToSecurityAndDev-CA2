@@ -13,20 +13,19 @@ import java.sql.SQLException;
 @WebServlet("/SignInServlet")
 public class SignInServlet extends HttpServlet {
 
+    @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String username = request.getParameter("username");
         String password = request.getParameter("password");
 
-        /* Commented out for testing purpuses        
-        
         // First, validate the input before attempting to authenticate with the database
-        if (!isValidUsername(username) || !isValidPassword(password)) {
+        if (!isValidInput(username, password)) {
             // Invalid input; redirect back to the sign-in page with an error message
             String errorMessage = URLEncoder.encode("Invalid input. Please check your username and password and try again.", "UTF-8");
             response.sendRedirect("index.html?error=" + errorMessage);
             return;
-        }        
-         */
+        }
+
         try {
             // Input is valid; proceed to authenticate the user
             int userId = DatabaseManager.authenticateUserAndGetId(username, password);
@@ -56,13 +55,10 @@ public class SignInServlet extends HttpServlet {
         }
     }
 
-    private boolean isValidUsername(String username) {
-        // Username must be at least 8 characters long
-        return username != null && username.matches("^[a-zA-Z0-9._-]{8,}$");
-    }
-
-    private boolean isValidPassword(String password) {
-        // Password must be at least 8 characters long
-        return password != null && password.matches("^[a-zA-Z0-9._-]{8,}$");
+    private boolean isValidInput(String username, String password) {
+        // Define the same validation logic as the client-side
+        // Username must betwen 8 and 15 characters long and consists of alphanumeric characters and numbers. 
+        // Password must be at least 10 characters long, contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+        return username.matches("^[a-zA-Z0-9._-]{8,15}$") && password.matches("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{10,}$");
     }
 }

@@ -3,7 +3,6 @@ package com.securechatapp;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.mindrot.jbcrypt.BCrypt;
-
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
@@ -22,69 +21,103 @@ public class RegistrationServlet extends HttpServlet {
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
 
-        // Read request body
+        // Default values
+        int userId;
+        String username;
+        String password;
+        String encPrivateKey;
+        String publicKeyBase64;
+
+        // Handle JSON POST request
         String requestBody = request.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
-        System.out.println("Received requestBody: " + requestBody);
-        // Parse JSON 
+        System.out.println("Req body: " + requestBody);
+
+        // Parse JSON
         Gson gson = new Gson();
         UserRegistrationData data = gson.fromJson(requestBody, UserRegistrationData.class);
+        String action = data.getAction(); // Get the action from the parsed JSON
 
-        String username = data.getUsername();
-        String password = data.getPassword();
-        String publicKeyBase64 = data.getPublicKey();
+        if ("register".equals(action)) {
 
-        // Perform server-side validation
-        if (!isValidInput(username, password)) {
-            JsonObject jsonResponse = new JsonObject();
-            jsonResponse.addProperty("status", "error");
-            jsonResponse.addProperty("message", "Invalid input. Please check your username and password and try again.");
+            username = data.getUsername();
+            password = data.getPassword();
+            publicKeyBase64 = data.getPublicKey();
+            encPrivateKey = data.getPrivateKey();
 
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            response.getWriter().write(new Gson().toJson(jsonResponse));
-            return; // Stop the method if validation fails
-        }
+            System.out.println("enc key: " + encPrivateKey);
 
-        // Generate a salt and hash the password
-        String salt = BCrypt.gensalt();
-        String hashedPassword = BCrypt.hashpw(password, salt);
-
-        try {
-            int userId = DatabaseManager.registerUser(username, hashedPassword, salt, publicKeyBase64);
-
-            if (userId > -1) {
+            // Perform server-side validation
+            if (!isValidInput(username, password)) {
                 JsonObject jsonResponse = new JsonObject();
-                jsonResponse.addProperty("status", "success");
-                jsonResponse.addProperty("userId", userId);
-                jsonResponse.addProperty("message", "Registration successful for Username: " + username);
+                jsonResponse.addProperty("status", "error");
+                jsonResponse.addProperty("message", "Invalid input. Please check your username and password and try again.");
 
-                // Set the necessary session attributes
-                HttpSession session = request.getSession();
-                session.setAttribute("username", username);
-                session.setAttribute("userId", userId);
-                session.setAttribute("publicKey", publicKeyBase64);
-
-                // Convert the JsonObject to a String to send as a response
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
                 response.getWriter().write(new Gson().toJson(jsonResponse));
-            } else {
-                AppLogger.warning("Registration failed for Username: " + username);
+                return; // Stop the method if validation fails
+            }
+
+            // Generate a salt and hash the password
+            String salt = BCrypt.gensalt();
+            String hashedPassword = BCrypt.hashpw(password, salt);
+
+            try {
+
+                userId = DatabaseManager.registerUser(username, hashedPassword, salt, publicKeyBase64, encPrivateKey);
+
+                if (userId == -2) {
+                    // Username already exists
+                    JsonObject jsonResponse = new JsonObject();
+                    jsonResponse.addProperty("status", "error");
+                    jsonResponse.addProperty("message", "Username already exists.");
+
+                    // Send error status and log
+                    response.setStatus(HttpServletResponse.SC_CONFLICT); // 409 Conflict
+                    response.getWriter().write(new Gson().toJson(jsonResponse));
+                } else if (userId > -1) {
+                    // Registration successful
+                    JsonObject jsonResponse = new JsonObject();
+                    jsonResponse.addProperty("status", "success");
+                    jsonResponse.addProperty("userId", userId);
+                    jsonResponse.addProperty("message", "Registration successful for Username: " + username);
+
+                    // Set the necessary session attributes
+                    HttpSession session = request.getSession();
+                    session.setAttribute("username", username);
+                    session.setAttribute("userId", userId);
+                    session.setAttribute("publicKey", publicKeyBase64);
+
+                    // Convert the JsonObject to a String to send as a response
+                    response.getWriter().write(new Gson().toJson(jsonResponse));
+                } else {
+                    // Other errors (userId = -1)
+                    AppLogger.warning("Registration failed for Username: " + username);
+
+                    JsonObject jsonResponse = new JsonObject();
+                    jsonResponse.addProperty("status", "error");
+                    jsonResponse.addProperty("message", "Registration failed for Username: " + username);
+
+                    // Send error status and log
+                    response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    response.getWriter().write(gson.toJson(jsonResponse));
+                }
+            } catch (SQLException e) {
+                AppLogger.severe("SQL Exception during registration for Username: " + username + " - " + e.getMessage());
 
                 JsonObject jsonResponse = new JsonObject();
                 jsonResponse.addProperty("status", "error");
-                jsonResponse.addProperty("message", "Registration failed for Username: " + username);
+                jsonResponse.addProperty("message", "Registration failed due to a database error: " + e.getMessage());
 
                 // Send error status and log
-                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                 response.getWriter().write(gson.toJson(jsonResponse));
             }
-        } catch (SQLException e) {
-            AppLogger.severe("SQL Exception during registration for Username: " + username + " - " + e.getMessage());
-
+        } else {
+            // Handle unknown action
             JsonObject jsonResponse = new JsonObject();
             jsonResponse.addProperty("status", "error");
-            jsonResponse.addProperty("message", "Registration failed due to a database error: " + e.getMessage());
-
-            // Send error status and log
-            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            jsonResponse.addProperty("message", "Unknown action type.");
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             response.getWriter().write(gson.toJson(jsonResponse));
         }
     }
@@ -102,6 +135,8 @@ public class RegistrationServlet extends HttpServlet {
         private String username;
         private String password;
         private String publicKey;
+        private String action;
+        private String encPrivateKey;
 
         // Getters and setters are not shown for brevity
         public String getUsername() {
@@ -126,6 +161,22 @@ public class RegistrationServlet extends HttpServlet {
 
         public void setPublicKey(String publicKey) {
             this.publicKey = publicKey;
+        }
+
+        public String getAction() {
+            return action;
+        }
+
+        public void setAction(String action) {
+            this.action = action;
+        }
+
+        public String getPrivateKey() {
+            return encPrivateKey;
+        }
+
+        public void setPrivateKey(String encPrivateKey) {
+            this.encPrivateKey = encPrivateKey;
         }
     }
 }
