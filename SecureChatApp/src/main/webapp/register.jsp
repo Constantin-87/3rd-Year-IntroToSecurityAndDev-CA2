@@ -21,7 +21,11 @@
                 <div class="input-group">
                     Password: <input type="password" id="password" name="password" required>
                 </div>
+                <div class="input-group">
+                    Private Key Password: <input type="password" id="privateKeyPassphrase" name="privateKeyPassphrase" required>
+                </div>
                 <input type="hidden" id="publicKey" name="publicKey">
+                <input type="hidden" id="encPrivateKey" name="encPrivateKey">
                 <button type="submit" id="submit-button" class="action-button">Register</button>
 
                 <button onclick="location.href = 'index.html'" id="back-button" class="action-button">Back</button>

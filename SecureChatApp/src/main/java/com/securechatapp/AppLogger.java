@@ -48,7 +48,7 @@ public class AppLogger {
             SimpleFormatter formatter = new SimpleFormatter();
             fileHandler.setFormatter(formatter);
 
-            logger.info("Logger initialized and log file is located at: " + logFile.getAbsolutePath());
+            logger.log(Level.INFO, "Logger initialized and log file is located at: {0}", logFile.getAbsolutePath());
         } catch (IOException e) {
             System.err.println("Could not initialize log file: " + e.getMessage());
             throw new RuntimeException("Failed to initialize logger", e);

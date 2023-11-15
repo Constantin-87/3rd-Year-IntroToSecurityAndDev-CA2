@@ -1,316 +1,191 @@
 // JavaScript for Chat Application
 
+// Importing functions from secure.js
+import {
+encryptForSending,
+        decryptForDisplay,
+        decryptAndStoreSymKey,
+        checkIfPrivateKeyExists,
+        decryptPrivateKey,
+        doesSymKeyExistForRecipient
+        } from './secure.js';
+        
 document.addEventListener("DOMContentLoaded", function () {
-// DOM Elements
+    
+    // DOM Elements
     const chatArea = document.getElementById("chat-area");
     const messageInput = document.getElementById("message-input");
     const sendButton = document.getElementById("send-button");
     const usersSidebar = document.getElementById("users-sidebar");
     const currentUserSpan = document.getElementById("current-user");
+    
+    let  privateKeyPass;
+    let  currentConversationId;
+    let  currentChatUserId; // The current user's ID you're chatting with 
 
-    var currentConversationId = null;
-    var currentChatUserId = null; // The current user's ID you're chatting with
-    var symmetricKeyObject = null;
-
-
-    // Websocket Initialization
-    //var socket = new WebSocket("wss://localhost:8443/SecureChatApp/chat");
-
-    // Determine the protocol to use for WebSocket
-    var wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
     // Use window.location.host to automatically adapt to the environment's host and port
-    var socket = new WebSocket(`${wsProtocol}://${window.location.host}/SecureChatApp/chat`);
-    // Extract the current user's username from the DOM
-    var currentUserUsername = currentUserSpan.textContent.replace('Logged in as: ', '').trim();
-    // WebSocket Event Handlers
+    const socket = new WebSocket(`wss://${window.location.host}/SecureChatApp/chat`);    
+
+    // On opening the socket
     socket.onopen = function (event) {
+        checkForPrivateKey();
     };
 
-    socket.onmessage = function (event) {
+    // On receiving a response from the server
+    socket.onmessage = async function (event) {
         if (event.data instanceof Blob) {
-            // It's binary data, handle it accordingly
-            var reader = new FileReader();
-            reader.onload = function () {
-                // Assuming the binary data is the encrypted symmetric key
-                const encryptedSymKeyBuffer = reader.result;
-                handleSymKeyResponse(encryptedSymKeyBuffer);
-            };
-            reader.onerror = function (error) {
-                console.error("Error reading blob:", error);
-            };
-            reader.readAsArrayBuffer(event.data);
+            // This is the symmetric key response, handle it separately
+            handleSymKeyResponse(event);
         } else {
-            // It's text data, handle as JSON
-            console.log("Received: " + event.data);
-            var data = JSON.parse(event.data);
-            handleIncomingData(data);
+            // Assume this is JSON data
+            try {
+                const data = JSON.parse(event.data);
+                const handler = messageTypeHandlers[data.type];
+                if (handler) {
+                    await handler(data);
+                } else {
+                    console.error('No handler for message type:', data.type);
+                }
+            } catch (error) {
+                console.error('Failed to handle incoming message:', error);
+            }
         }
     };
 
+    // On closing the socket
     socket.onclose = function (event) {
         redirectToLogin(); // Redirect to login on WebSocket close
     };
 
+    // On socket error
     socket.onerror = function (event) {
         console.error("WebSocket error observed:", event);
         // Provide user feedback
         alert("A WebSocket error has occurred. Please check the console for more information.");
     };
 
-    // Send Message on Send Button Click
+    // Send Message on Send Button Click and when the Enter key is pressed
     sendButton.addEventListener("click", sendMessage);
-    // Send message when the Enter key is pressed
     messageInput.addEventListener("keypress", function (event) {
         if (event.key === "Enter") {
             event.preventDefault(); // Prevent default to stop newline insertion
             sendMessage();
         }
     });
+    
+    // Check if the private key is contained in IndexedDB
+    async function checkForPrivateKey() {
+        const privateKeyExists = await checkIfPrivateKeyExists();
+        if (!privateKeyExists) {
+            console.log(`Private key doesn't exist for userid: ${currentUserId}`); // Password input box should be implemented (with hidden text)
+            // Prompt the user to input their Private Key Password
+            privateKeyPass = window.prompt("Please enter your Private Key Password:", "");
+            if (privateKeyPass) {
+                await requestPrivateKey(socket);
+            }
+        }
+    }
+
     // Redirect to the login page
     function redirectToLogin() {
         window.location.href = 'index.html';
     }
 
-    // Function to send an encrypted message to the server
+    // Function to send message
     async function sendMessage() {
-        if (!(symmetricKeyObject instanceof CryptoKey)) {
-            console.error("Encryption failed Error: symmetricKeyObject is not a CryptoKey instance", symmetricKeyObject);
-            // Handle the error appropriately, perhaps by requesting the key again or notifying the user
-            return;
-        }
-        var message = messageInput.value.trim();
-        if (!message) {
-            console.error("No message to send.");
-            return;
-        }
-        if (!currentChatUserId) {
-            console.error("No currentChatUserId set. Cannot send message.");
-            return;
-        }
-        if (!currentConversationId) {
-            console.error("No currentConversationId set. Cannot send message.");
-            return;
-        }
+        const message = messageInput.value.trim();
+        console.log("Preparing to send currentConversationId", currentConversationId); // In here if currentConversationId == null , prompt the user to select a conversation
 
-        // Log the symmetricKeyObject for debugging
-        console.log("Symmetric key object before encryption:", symmetricKeyObject);
+        if (message && currentChatUserId && currentConversationId) {
+            try {
+                const encryptedContent = await encryptForSending(message, currentConversationId); // Call the function to decript message from secure.js
 
+                socket.send(JSON.stringify({ // send the data to the server on the socket declared above
+                    type: "message",
+                    recipient: currentChatUserId,
+                    conversationId: currentConversationId,
+                    content: encryptedContent
+                }));
+                
+                // Append the message to the sender's chatbox
+                appendMessage({
+                    from: 'You',
+                    content: message, // Using the original message here since it's for the sender's view
+                    isSender: true,
+                    conversationId: currentConversationId
+                });
 
-        // Encrypt the message
-        try {
-            if (!(symmetricKeyObject instanceof CryptoKey)) {
-                throw new Error('symmetricKeyObject is not a CryptoKey instance');
+                // Clear the input after sending
+                messageInput.value = '';
+            } catch (error) {
+                console.error("Error during message sending:", error);
             }
-            const encryptedData = await encryptMessage(message, symmetricKeyObject);
-            // Convert both the IV and the ciphertext to Base64
-            const ivBase64 = arrayBufferToBase64(encryptedData.iv);
-            const encryptedContentBase64 = arrayBufferToBase64(encryptedData.ciphertext);
-            // Combine IV with the encrypted content
-            const combinedContentBase64 = ivBase64 + ':' + encryptedContentBase64;
-            // Send the combined IV and encrypted message as Base64
-            var messageData = JSON.stringify({
-                type: "message",
-                recipient: currentChatUserId,
-                conversationId: currentConversationId,
-                content: combinedContentBase64 // Sending the encrypted content
-            });
-            socket.send(messageData);
-            messageInput.value = ''; // Clear the input field after sending
-
-            // Optimistically append the message to the chat area
-            appendMessage({
-                content: combinedContentBase64, // The original, unencrypted message
-                from: 'You',
-                isSender: true,
-                conversationId: currentConversationId
-            });
-        } catch (error) {
-            console.error("Encryption failed", error);
         }
     }
 
-    // Function to decrypt and append the message to the chat area
+    /// Function to decrypt (if needed) and append the message to the chat area
     async function appendMessage( { from, content, isSender, conversationId }) {
         if (conversationId !== currentConversationId) {
-            console.error("Received message for a different conversation:", conversationId);
             return; // If the message is not part of the current conversation, ignore it
         }
 
-      
-            // Split the combined IV and encrypted content
-            const [ivBase64, encryptedContentBase64] = content.split(':');
-            const iv = base64ToArrayBuffer(ivBase64);
-            const encryptedContent = base64ToArrayBuffer(encryptedContentBase64);
-
+        // Check if the content is in the expected encrypted format (IV:ciphertext) 
+        if (content.includes(':')) { //to implement a better method to check for encrypted vs plain text
             try {
-                const decryptedData = await decryptMessage({ciphertext: encryptedContent, iv: iv}, symmetricKeyObject);
-                displayContent = decryptedData;
+                // Assume the message is encrypted and attempt to decrypt it
+                const decryptedContent = await decryptForDisplay(content, conversationId);
+                content = decryptedContent; // Update content to be the decrypted message
             } catch (error) {
-                console.error("Decryption failed", error);
-                displayContent = "[Encrypted Message]"; // Fallback content
+                console.error("Decryption error:", error);
+                // If decryption fails, display a placeholder instead
+                content = '[Encrypted Message]';
             }
-        
+        }
 
-        // Create message element and append to chat area
+        // Append the message to the chat area
         const messageDiv = document.createElement("div");
         messageDiv.classList.add("message", isSender ? "sent" : "received");
-        const displayFrom = isSender ? "You" : from;
-        messageDiv.textContent = `${displayFrom}: ${displayContent}`;
+        messageDiv.textContent = `${from}: ${content}`;
         chatArea.appendChild(messageDiv);
         chatArea.scrollTop = chatArea.scrollHeight; // Auto-scroll to the newest message
     }
 
+    // Function to switch the chat user and request chat history
+    async function switchChatUser(recipientId, username) {
+        console.log(`Switching to chat with user ID: ${recipientId}, username: ${username}`);
+        currentChatUserId = recipientId;
+        updateChatHeader(username);
+        setActiveUserButton(recipientId);
 
+        try {
+            const symKeyExists = doesSymKeyExistForRecipient(recipientId); // check if the symmetric key exists before requesting the chat history
+            console.log("Symmetric key for conversation exists:", symKeyExists);
+            if (!symKeyExists) {
+                // Request the symmetric key from the server
+                console.log("Requesting symmetric key for user ID:", recipientId);
+                await requestSymKey(socket, recipientId);
+            } else {
+                // If the symmetric key is available, request the chat history
+                await requestEncryptedHistory(socket, recipientId);
+            }
+        } catch (error) {
+            console.error("Error switching chat user:", error);
+        }
+    }    
 
-    // Update the user list on the sidebar
-    function updateUserList(users) {
-        // Clear the current user list
-        usersSidebar.innerHTML = '';
-        // Iterate over the user list and create buttons for each user
-        users.forEach(function (user) {
-            // Check to avoid adding the current user to the list
+    // Function to update the user list on the sidebar
+    function updateUserList(data) {
+        usersSidebar.innerHTML = ''; // Clear the current user list
+        data.users.forEach(user => {
             if (user.username !== currentUserUsername) {
                 const userButton = document.createElement('button');
                 userButton.textContent = user.username;
                 userButton.classList.add('user-button');
-                userButton.dataset.userId = user.id; // Store the user ID in the button dataset
-
-                // Add an event listener for the click on user button
-                userButton.addEventListener('click', function () {
-                    switchChatUser(user.id, user.username);
-                });
-                // Append the user button to the sidebar
+                userButton.dataset.userId = user.id;
+                userButton.addEventListener('click', () => switchChatUser(user.id, user.username));
                 usersSidebar.appendChild(userButton);
             }
         });
-    }
-
-    // Function to switch the chat user and fetch chat history once the symmetric key is loaded
-    async function switchChatUser(userId, username) {
-        console.log(`Switching to chat with user ID: ${userId}, username: ${username}`);
-        currentChatUserId = userId;
-        chatArea.innerHTML = ''; // Clear the chat area
-        updateChatHeader(username); // Update the chat header with the new user's name
-        setActiveUserButton(userId); // Highlight the active user button
-
-        if (!symmetricKeyObject) {
-            try {
-                // Await the symmetric key request to ensure it's loaded before fetching chat history
-                await requestSymKey(userId);
-                requestChatHistory(userId); // Then request the chat history
-            } catch (error) {
-                console.error("Error obtaining symmetric key:", error);
-                // Handle the error, perhaps by notifying the user or retrying
-            }
-        } else {
-            requestChatHistory(userId); // If the key is already present, just request the chat history
-        }
-    }
-
-
-    // Function to handle the symmetric key response
-    function handleSymKeyResponse(encryptedSymKeyBuffer) {
-        return new Promise(async (resolve, reject) => {
-            try {
-                const decryptedSymKeyBuffer = await decryptSymmetricKey(encryptedSymKeyBuffer);
-                symmetricKeyObject = await importSymmetricKey(decryptedSymKeyBuffer);
-                console.log("Symmetric key object after import:", symmetricKeyObject);
-                resolve(symmetricKeyObject); // Resolve the promise with the symmetric key object
-            } catch (error) {
-                console.error("Failed to decrypt symmetric key:", error);
-                reject(error); // Reject the promise if an error occurs
-            }
-        });
-    }
-
-    // Function to request the symmetric key from the server
-    function requestSymKey(userId) {
-        return new Promise((resolve, reject) => {
-            // Send the request for the symmetric key
-            socket.send(JSON.stringify({
-                type: "requestSymKey",
-                recipientId: userId
-            }));
-        });
-    }
-
-    // Function to process incoming WebSocket data
-    async function handleIncomingData(data) {
-        // Process the message based on its type
-        switch (data.type) {
-            case 'userListUpdate':
-                updateUserList(data.users); // Update the user list
-                break;
-            case 'message':
-                // Check if the conversationId is provided
-                if (!data.conversationId) {
-                    console.error("No conversationId provided with message:", data);
-                    return; // Exit the function if there is no conversationId
-                }
-                const conversationId = data.conversationId;
-                if (currentChatUserId === data.senderId) {
-                    currentConversationId = conversationId;
-                    const isSender = data.senderId === currentUserId;
-                    appendMessage({
-                        content: data.content,
-                        from: isSender ? 'You' : data.senderUsername,
-                        isSender: isSender,
-                        conversationId: conversationId
-                    });
-                } else {
-                    console.log("Message is not for the current chat.");
-                }
-                break;
-            case 'chatHistoryResponse':
-                // Assuming the server sends a 'conversationId' even if messages are empty
-                if (typeof data.conversationId !== 'undefined') {
-                    currentConversationId = data.conversationId;
-                    console.log("Setting currentConversationId from chat history:", currentConversationId);
-                } else if (data.messages.length > 0) {
-                    currentConversationId = data.messages[0].conversationId;
-                    console.log("Setting currentConversationId from chat history:", currentConversationId);
-                } else {
-                    console.error('No conversationId received with chat history response.');
-                    return;
-                }
-
-                // Clear existing messages in the chat area
-                chatArea.innerHTML = '';
-                // Now process each message in the history
-                data.messages.forEach(message => {
-                    const isSender = message.senderId === currentUserId;
-                    
-                    console.log("senderId: " + message.senderId + " currentUserId: " + currentUserId + " IsSender: " + isSender);
-                    
-                    // Decide whether to use sender's username or recipient's based on who is the sender
-                    let usernameDisplay;
-                    if (isSender) {
-                        usernameDisplay = 'You';
-                    } else {
-                        // If message.sender_username is truthy, use it; otherwise, use 'Other'
-                        if (message.sender_username) {
-                            usernameDisplay = message.sender_username;
-                        } else {
-                            usernameDisplay = 'Other';
-                        }
-                    }
-
-                    
-                    console.log("usernameDisplay: " + usernameDisplay);
-                    console.log("sender_username: " + message.sender_username);
-                    console.log("recipient_username: " + message.recipient_username);
-
-                    appendMessage({
-                        content: message.content,
-                        from: usernameDisplay,
-                        isSender: isSender,
-                        conversationId: currentConversationId
-                    });
-                });
-                break;
-            default:
-                console.error('Unknown message type received:', data.type);
-        }
     }
 
     // Update the chat header with the selected user's username
@@ -335,13 +210,133 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    // Request chat history for the selected user
-    function requestChatHistory(userId) {
-        socket.send(JSON.stringify({
-            type: "requestChatHistory",
-            recipientId: userId
-        }));
+    // Functions to request data from the server
+
+    // Function to request the symmetric key from the server
+    function requestSymKey(socket, userId) {
+        // Send the request for the symmetric key to the server
+        return new Promise((resolve, reject) => {
+            socket.send(JSON.stringify({
+                type: "requestSymKey",
+                recipientId: userId
+            }));
+        });
     }
 
+    // Function to request the private key from the server
+    function requestPrivateKey(socket) {
+        console.log('in requestPrivateKey');
+        // Send the request for the symmetric key to the server
+        return new Promise((resolve, reject) => {
+            socket.send(JSON.stringify({type: "requestPrivateKey"}));
+        });
+    }
+
+    // Function to request the encrypted chat history from the server
+    async function requestEncryptedHistory(socket, userId) {
+        return new Promise((resolve, reject) => {
+            // Send the request for the chat history
+            socket.send(JSON.stringify({type: "requestChatHistory", recipientId: userId}));
+        });
+    }
+
+    //Functions to handle server responses
+    
+    // Function to handle the chat history response from the server
+    async function handleChatHistoryResponse(data) {
+
+        if (data.conversationId) {
+            chatArea.innerHTML = ''; // Clear chat area before appending new messages
+            currentConversationId = data.conversationId;
+            for (let message of data.messages) {
+                try {
+                    appendMessage({
+                        from: message.senderId === currentUserId ? 'You' : message.sender_username,
+                        content: message.content,
+                        isSender: message.senderId === currentUserId,
+                        conversationId: data.conversationId
+                    });
+                } catch (error) {
+                    console.error("Calling appendMessage from handleChatHistoryResponse error:", error);
+                }
+            }
+        } else {
+            console.error('No conversationId received with chat history response.');
+        }
+    }
+
+    // Handle the incoming binary message for the symmetric key
+    async function handleSymKeyResponse(event) {
+        // Server sends event.data as a Blob containing the conversation ID and encrypted symmetric key
+        const arrayBuffer = await event.data.arrayBuffer();
+        const dataView = new DataView(arrayBuffer);
+
+        // Read the conversation ID from the first 4 bytes of the ArrayBuffer
+        currentConversationId = dataView.getInt32(0);
+
+        // Extract the encrypted symmetric key which follows the conversation ID
+        const encryptedSymKeyBuffer = arrayBuffer.slice(4); // Use 4 for the size of an integer in bytes
+
+        try {
+            // Decrypt the symmetric key and store it
+            const symKey = await decryptAndStoreSymKey(encryptedSymKeyBuffer, currentConversationId, currentChatUserId, currentUserUsername);
+
+            // Now that the symmetric key is stored, we can proceed to request the chat history
+            await requestEncryptedHistory(socket, currentChatUserId);
+        } catch (error) {
+            console.error("Error handling the symmetric key response:", error);
+        }
+    }
+    
+    // Function to handle private key update response from the server
+    async function updatePrivateKey(data) {
+        console.log('Private key received from the server: ', data);
+
+        const encryptedPrivateKeyBase64 = data.privateKey;
+        decryptPrivateKey(encryptedPrivateKeyBase64, privateKeyPass);
+    }
+    
+    // Function to handle a new incoming message
+    async function handleMessage(data) {
+        console.log("in handleMessage data.conversationId: " + data.conversationId);
+        const conversationId = data.conversationId;
+        if (!conversationId) {
+            console.error("No conversationId provided with message:", data);
+            return; // Exit the function if there is no conversationId
+        }
+        if (currentChatUserId === data.senderId) {
+            const isSender = data.senderId === currentUserId;
+            appendMessage({
+                content: data.content,
+                from: isSender ? 'You' : data.senderUsername,
+                isSender: isSender,
+                conversationId: conversationId
+            });
+        } else {
+            // This message is for a conversation that is not currently active
+            const userButton = document.querySelector(`.user-button[data-user-id="${data.senderId}"]`);
+            if (userButton && !userButton.classList.contains('flicker')) {
+                userButton.classList.add('flicker');
+                setTimeout(() => {
+                    userButton.classList.remove('flicker'); // Remove flicker after some time
+                }, 3000); // Adjust time as needed for flicker effect duration
+            }
+        }
+    }
+
+    // Handlers 
+    const messageTypeHandlers = {
+        chatHistoryResponse: handleChatHistoryResponse,
+        message: handleMessage,
+        userListUpdate: updateUserList,
+        privateKeyUpdate: updatePrivateKey
+    };
+
+    // Close the socket upon closing the page
+    window.addEventListener("beforeunload", function () {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.close();
+        }
+    });
 });
 

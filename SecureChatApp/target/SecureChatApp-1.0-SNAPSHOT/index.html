@@ -2,24 +2,37 @@
 <html>
     <head>
         <title>Welcome to Secure Chat App</title>
-        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <meta content="text/html; charset=UTF-8" http-equiv="Content-Type">
+        <link rel="stylesheet" href="style.css">
     </head>
     <body>
-        <h1>Welcome to Secure Chat App</h1>
-        <div id="error-message" style="color: red;"></div>
-        <form action="SignInServlet" method="POST">
-            <label for="username">Username:</label>
-            <input type="text" id="username" name="username" required><br><br>
-            <label for="password">Password:</label>
-            <input type="password" id="password" name="password" required><br><br>
-            <button type="submit">Login</button>
-        </form>
+        <header>
+            <div id="title-container">
+                <h1>Welcome to Secure Chat App</h1> <!-- Title of the page -->
+            </div>
+        </header>
+        <main id="main-container">
+            <div id="error-message"></div>
+            <form action="SignInServlet" method="POST" class="form-container">
+                <div class="input-group">
+                    <label for="username">Username:</label>
+                    <input id="username" name="username" required type="text">
+                </div>
+                <div class="input-group">
+                    <label for="password">Password:</label>
+                    <input id="password" name="password" required type="password">
+                </div>
+                <!-- For index.html -->
+                <button type="submit" id="submit-button" class="action-button">Login</button>
+                <button onclick="location.href = 'register.jsp'" id="register-button" class="action-button">Register</button>
 
-        <button onclick="location.href = 'register.jsp'">Register</button>
+            </form>
 
+
+        </main>
         <script>
             // This script checks for a query string and displays an error message if present
-            window.onload = function() {
+            window.onload = function () {
                 var urlParams = new URLSearchParams(window.location.search);
                 var error = urlParams.get('error');
                 if (error) {

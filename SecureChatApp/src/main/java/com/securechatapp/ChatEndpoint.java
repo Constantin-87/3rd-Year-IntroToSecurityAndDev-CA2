@@ -19,63 +19,8 @@ public class ChatEndpoint {
 
     private static final Map<Session, Integer> sessionUserIdMap = new ConcurrentHashMap<>();
     private static final Map<Integer, Session> userIdSessionMap = new ConcurrentHashMap<>();
-    private static final Map<Integer, Long> userLastSeen = new ConcurrentHashMap<>();
+    private static final Map<Integer, Long> userLastSeen = new ConcurrentHashMap<>();  // To be used in activity tracker (not implemented yet)
     private static final Map<Integer, String> userIdUsernameMap = new ConcurrentHashMap<>(); // Map to hold user IDs and usernames
-
-    public static void loginUser(String username, Integer userId, Session session) {
-        AppLogger.info("Logging in user: " + username + " with userId: " + userId);
-        sessionUserIdMap.put(session, userId);
-        userIdSessionMap.put(userId, session);
-        userLastSeen.put(userId, System.currentTimeMillis());
-        userIdUsernameMap.put(userId, username); // Store the username as well
-    }
-
-    private static void logoutUser(Integer userId) {
-        Session session = userIdSessionMap.remove(userId);
-        if (session != null) {
-            sessionUserIdMap.remove(session);
-            try {
-                session.close();
-            } catch (IOException e) {
-                AppLogger.severe("logoutUser - Error closing session for user " + userIdUsernameMap.get(userId) + ": " + e.getMessage());
-            }
-        }
-        userLastSeen.remove(userId);
-        userIdUsernameMap.remove(userId); // Remove the user from the username map as well
-    }
-
-    private static void updateUserListForAllClients() {
-        JsonArrayBuilder jsonArrayBuilder = Json.createArrayBuilder();
-
-        // Retrieve user IDs and usernames from the map and add them to the JSON array as objects
-        for (Integer userId : userIdSessionMap.keySet()) {
-            String username = userIdUsernameMap.get(userId); // Get the username from the map
-            if (username != null) {
-                JsonObject userObject = Json.createObjectBuilder()
-                        .add("id", userId)
-                        .add("username", username)
-                        .build();
-                jsonArrayBuilder.add(userObject);
-            }
-        }
-
-        String usersJson = Json.createObjectBuilder()
-                .add("type", "userListUpdate")
-                .add("users", jsonArrayBuilder)
-                .build()
-                .toString();
-
-        // Send the updated user list to all connected clients
-        for (Session session : userIdSessionMap.values()) {
-            if (session.isOpen()) {
-                try {
-                    session.getBasicRemote().sendText(usersJson);
-                } catch (IOException e) {
-                    AppLogger.severe("updateUserListForAllClients - Error sending user list: " + e.getMessage());
-                }
-            }
-        }
-    }
 
     @OnOpen
     public void onOpen(Session session, EndpointConfig config) {
@@ -148,6 +93,13 @@ public class ChatEndpoint {
                     sendSymKey(session, encryptedSymKey, conversationId);
                     break;
 
+                case "requestPrivateKey":
+
+                    String privateKey = DatabaseManager.getPrivateKeyByUserId(senderId);
+                    sendPrivateKey(session, privateKey);
+
+                    break;
+
                 default:
                     AppLogger.severe("onMessage - Unknown message type: " + type);
                     break;
@@ -167,6 +119,62 @@ public class ChatEndpoint {
     @OnError
     public void onError(Session session, Throwable throwable) {
         AppLogger.severe("onError - WebSocket error: " + throwable.getMessage());
+
+    }
+
+    public static void loginUser(String username, Integer userId, Session session) {
+        AppLogger.info("Logging in user: " + username + " with userId: " + userId);
+        sessionUserIdMap.put(session, userId);
+        userIdSessionMap.put(userId, session);
+        userLastSeen.put(userId, System.currentTimeMillis());
+        userIdUsernameMap.put(userId, username); // Store the username as well
+    }
+
+    private static void logoutUser(Integer userId) {
+        Session session = userIdSessionMap.remove(userId);
+        if (session != null) {
+            sessionUserIdMap.remove(session);
+            try {
+                session.close();
+            } catch (IOException e) {
+                AppLogger.severe("logoutUser - Error closing session for user " + userIdUsernameMap.get(userId) + ": " + e.getMessage());
+            }
+        }
+        userLastSeen.remove(userId);
+        userIdUsernameMap.remove(userId); // Remove the user from the username map as well
+    }
+
+    private static void updateUserListForAllClients() {
+        JsonArrayBuilder jsonArrayBuilder = Json.createArrayBuilder();
+
+        // Retrieve user IDs and usernames from the map and add them to the JSON array as objects
+        for (Integer userId : userIdSessionMap.keySet()) {
+            String username = userIdUsernameMap.get(userId); // Get the username from the map
+            if (username != null) {
+                JsonObject userObject = Json.createObjectBuilder()
+                        .add("id", userId)
+                        .add("username", username)
+                        .build();
+                jsonArrayBuilder.add(userObject);
+            }
+        }
+
+        String usersJson = Json.createObjectBuilder()
+                .add("type", "userListUpdate")
+                .add("users", jsonArrayBuilder)
+                .build()
+                .toString();
+
+        // Send the updated user list to all connected clients
+        for (Session session : userIdSessionMap.values()) {
+            if (session.isOpen()) {
+                try {
+                    session.getBasicRemote().sendText(usersJson);
+                } catch (IOException e) {
+                    AppLogger.severe("updateUserListForAllClients - Error sending user list: " + e.getMessage());
+                }
+            }
+        }
     }
 
     private void sendSymKey(Session session, byte[] encryptedSymKey, int conversationId) {
@@ -251,4 +259,20 @@ public class ChatEndpoint {
         }
     }
 
+    private void sendPrivateKey(Session session, String privateKey) {
+
+        JsonObject privateKeyJson = Json.createObjectBuilder()
+                .add("type", "privateKeyUpdate")
+                .add("privateKey", privateKey)
+                .build();
+        try {
+            // Log the privateKey string before sending
+            AppLogger.info("privateKey string before sending: " + privateKeyJson.toString());
+
+            session.getBasicRemote().sendText(privateKeyJson.toString());
+        } catch (IOException e) {
+            AppLogger.severe("sendChatHistory - Error sending chat history: " + e.getMessage());
+        }
+
+    }
 }
